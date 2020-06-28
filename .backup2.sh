@@ -1,12 +1,32 @@
 #!/bin/bash
 
-echo ".backup.sh (ALT)"
+#echo ".backup.sh (ALT)"
 
 sourcedir="$HOME/.backup"
 sharename="anotherusb"
 
 eecho() {
 echo "[OUT] -- $1"
+}
+
+doHelp() {
+	helpstring="Backup script for GNU + Linux systems.\n
+	REQUIRES: rsync, tar, POSIX-compliant Bash shell (expr, date, test, cut) and FUSE (mount)\n\
+	- - - -\t\t- - - -\n
+	Usage: $0 w/weekly\n
+	\t Recommended to invoke the script with crontab or other scheduling utilities, it will \n\
+	\t check the folder specified in \$sourcedir for a \`weekly\` directory from where the \n\
+	\t files will be copied. The destiny is selected by running \`mount\` and \`grep\`ing for \n\
+	\t the name specified in \$sharename. Any term is valid as long as the grep returns the \n\
+	\t mount point (which MUST be writeable).
+	\n
+	\t The script will create a month-tracking file (inside the remote mount) and will compare\n\
+	\t the current month to it. If the current month is greater than the tracking file, it'll \n\
+	\t compress all the weekly files found \$weeklydir (see below for details) using lzma and \n\
+	\t store them inside \$monthlydir (see below).\n
+	- - - -\t\t- - - -\n"
+	echo -e $helpstring
+	exit 1;
 }
 
 # Code left here for reference's sake-- removal due soon
@@ -52,6 +72,7 @@ doMonthly() {
 }
 
 doWeekly() {
+	reqChecks
 	copymonth="$(cat $weeklydir/month)">/dev/null 2>&1
 
 	if [[ $copymonth -eq $monthnum && -e $weeklydir/week-$monthnum.tar ]]; then
@@ -102,7 +123,7 @@ doWeekly() {
 
 			# copy to destination
 			rsync --info=progress2 -avz "$sourcedir/week-$monthnum.tar" "$weeklydir"
-			[[ $? == "0" ]] && rm "$sourcedir/week-$monthnum.tar" || exit 1;
+			[[ $? == "0" ]] && rm "$sourcedir/week-$monthnum.tar" || exit -1;
 
 			# Update tracking file
 			eecho "Done! Updating tracking file."
@@ -110,6 +131,8 @@ doWeekly() {
 		fi
 	fi
 	eecho "end of doWeekly"
+	if [[ -e "$sourcedir/temp.tar" ]]; then rm "$sourcedir/temp.tar"; fi
+	if [[ -e "$sourcedir/temp.tar.gz" ]]; then rm "$sourcedir/temp.tar.gz"; fi
 }
 
 reqChecks() {
@@ -122,8 +145,8 @@ reqChecks() {
 	weeknum="$(expr 1 + $(date +%V) - $(date +%V -d $(date +%Y-%m-01)))"
 	monthnum="$(date +%m)"
 
-	if ! [[ -d "$sourcedir/weekly" ]]; then eecho "$sourcedir/weekly doesn't exist. Please create it or edit the script to point to the proper folder.";exit 1; fi
-	if ! [[ -d "$sourcedir/monthly" ]]; then eecho "$sourcedir/monthly doesn't exist. Please create it or edit the script to point to the proper folder.";exit 1; fi
+	if ! [[ -d "$sourcedir/weekly" ]]; then eecho "$sourcedir/weekly doesn't exist. Please create it or edit the script to point to the proper folder.";exit -1; fi
+	if ! [[ -d "$sourcedir/monthly" ]]; then eecho "$sourcedir/monthly doesn't exist. Please create it or edit the script to point to the proper folder.";exit -1; fi
 
 	if ! [[ -d "$weeklydir" ]]; then eecho "Creating $weeklydir"; mkdir -p $weeklydir; fi
 	if ! [[ -d "$monthlydir" ]]; then eecho "Creating $monthlydir"; mkdir -p $monthlydir; fi
@@ -131,18 +154,23 @@ reqChecks() {
 	eecho "Testing permissions on '$weeklydir' and '$monthlydir'... This might take a second."
 	touch $weeklydir/perms
 	# If touch has return-code 1 it means we can't write, for whatever reason-- we'll assume it's permissions
-	if [[ $? -eq 1 ]]; then eecho "Hey! The user running the script ($(whoami)) has no permissions to access $weeklydir!"; exit 1; else rm $weeklydir/perms; fi
+	if [[ $? -eq 1 ]]; then eecho "Hey! The user running the script ($(whoami)) has no permissions to access $weeklydir!"; exit -1; else rm $weeklydir/perms; fi
 	touch $monthlydir/perms
-	if [[ $? -eq 1 ]]; then eecho "Hey! The user running the script ($(whoami)) has no permissions to access $monthlydir!"; exit 1; else rm $monthlydir/perms; fi
+	if [[ $? -eq 1 ]]; then eecho "Hey! The user running the script ($(whoami)) has no permissions to access $monthlydir!"; exit -1; else rm $monthlydir/perms; fi
 }
 
 if [[ -z $(mount | grep "$sharename") ]]; then
 	eecho "Network share not found... Please mount it with FUSE and try again."
 	exit
-else
-	eecho "Starting up"
-	reqChecks
+#else
+#	eecho "Starting up"
 fi
+
+case $1 in
+	"-h" | "--help" | "-?") doHelp;;
+	"w" | "weekly") doWeekly;;
+	*) doHelp;;
+esac
 
 # This is commented out because the code that was initially suposed to be separated for "montly backups" \
 # ended up being implemented in the weekly backup logic, so I'm just keeping this for reference, along \
@@ -152,8 +180,6 @@ fi
 #	if [[ -e "$sourcedir/temp.tar" ]]; then rm "$sourcedir/temp.tar"; fi
 #	if [[ -e "$sourcedir/temp.tar.gz" ]]; then rm "$sourcedir/temp.tar.gz"; fi
 #el
-if [[ $1 == "weekly" || $1 == "w" ]]; then
-	doWeekly
-	if [[ -e "$sourcedir/temp.tar" ]]; then rm "$sourcedir/temp.tar"; fi
-	if [[ -e "$sourcedir/temp.tar.gz" ]]; then rm "$sourcedir/temp.tar.gz"; fi
-fi
+# if [[ $1 == "weekly" || $1 == "w" ]]; then
+# 	doWeekly
+# fi
